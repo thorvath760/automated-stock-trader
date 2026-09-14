@@ -26,6 +26,45 @@ def ensure_config() -> dict:
     return load_config()
 
 
+RISK_PROFILES = {
+    "Conservative": {
+        "risk_per_trade_pct": 0.10,
+        "max_position_pct": 3.0,
+        "max_daily_loss_pct": 0.50,
+        "max_trades_per_day": 2,
+        "reward_to_risk": 1.50,
+        "symbols": ["SPY", "QQQ"],
+    },
+    "Moderate": {
+        "risk_per_trade_pct": 0.25,
+        "max_position_pct": 5.0,
+        "max_daily_loss_pct": 1.00,
+        "max_trades_per_day": 3,
+        "reward_to_risk": 1.50,
+        "symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
+    },
+    "Aggressive": {
+        "risk_per_trade_pct": 0.50,
+        "max_position_pct": 10.0,
+        "max_daily_loss_pct": 2.00,
+        "max_trades_per_day": 4,
+        "reward_to_risk": 2.00,
+        "symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
+    },
+}
+
+
+def risk_profile(willingness: int, capacity: int) -> str:
+    """Score willingness while preventing it from exceeding financial capacity."""
+    total = willingness + capacity
+    profile = "Conservative" if total <= 5 else "Moderate" if total <= 11 else "Aggressive"
+    if capacity <= 3:
+        return "Conservative"
+    if capacity <= 6 and profile == "Aggressive":
+        return "Moderate"
+    return profile
+
+
 cfg = ensure_config()
 st.title("Liquidity Sweep Paper Trader")
 st.caption("Signal research, backtesting, risk controls, and Alpaca paper-order execution")
@@ -48,7 +87,9 @@ with st.sidebar:
         CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
         st.success("Settings saved.")
 
-tab_overview, tab_chart, tab_backtest, tab_log = st.tabs(["Account", "Signals", "Backtest", "Activity log"])
+tab_overview, tab_risk, tab_chart, tab_backtest, tab_log = st.tabs(
+    ["Account", "Risk assessment", "Signals", "Backtest", "Activity log"]
+)
 
 try:
     api = clients()
@@ -68,6 +109,103 @@ with tab_overview:
                 for msg in scan_once(cfg, api):
                     st.write(msg)
     st.info("Continuous automation runs separately with: python bot.py")
+
+with tab_risk:
+    st.subheader("Educational paper-trading risk assessment")
+    st.write(
+        "This questionnaire does not collect a name, account number, or brokerage credentials. "
+        "It estimates a paper-trading profile from risk willingness and financial capacity."
+    )
+    with st.form("risk_assessment"):
+        st.markdown("#### Risk willingness")
+        loss_reaction = st.radio(
+            "If a paper portfolio fell 15% in one month, what would you most likely do?",
+            [0, 1, 2],
+            format_func=lambda x: ["Exit to prevent further losses", "Hold and review", "Hold or add if the plan remains valid"][x],
+        )
+        volatility = st.radio(
+            "Which paper-return pattern would you prefer?",
+            [0, 1, 2],
+            format_func=lambda x: ["Small fluctuations and lower return potential", "Moderate fluctuations", "Large fluctuations and higher return potential"][x],
+        )
+        experience = st.radio(
+            "How much experience do you have with stocks or ETFs?",
+            [0, 1, 2],
+            format_func=lambda x: ["Little or none", "Some", "Substantial"][x],
+        )
+        drawdown = st.radio(
+            "What maximum temporary paper loss could you tolerate without abandoning the plan?",
+            [0, 1, 2],
+            format_func=lambda x: ["Less than 10%", "10% to 20%", "More than 20%"][x],
+        )
+
+        st.markdown("#### Risk capacity")
+        horizon = st.radio(
+            "How long before these funds would be needed?",
+            [0, 1, 2],
+            format_func=lambda x: ["Less than 2 years", "2 to 5 years", "More than 5 years"][x],
+        )
+        emergency = st.radio(
+            "Is a separate emergency fund available?",
+            [0, 1, 2],
+            format_func=lambda x: ["No", "Partially funded", "Yes, adequately funded"][x],
+        )
+        income = st.radio(
+            "How stable is ongoing income?",
+            [0, 1, 2],
+            format_func=lambda x: ["Uncertain", "Generally stable", "Very stable with surplus cash flow"][x],
+        )
+        withdrawals = st.radio(
+            "How likely are withdrawals during the next two years?",
+            [0, 1, 2],
+            format_func=lambda x: ["Likely", "Possible", "Unlikely"][x],
+        )
+        assessed = st.form_submit_button("Calculate paper profile", type="primary")
+
+    if assessed:
+        willingness_score = loss_reaction + volatility + experience + drawdown
+        capacity_score = horizon + emergency + income + withdrawals
+        st.session_state["risk_result"] = {
+            "profile": risk_profile(willingness_score, capacity_score),
+            "willingness": willingness_score,
+            "capacity": capacity_score,
+        }
+
+    result = st.session_state.get("risk_result")
+    if result:
+        profile = result["profile"]
+        proposed = RISK_PROFILES[profile]
+        st.success(f"Suggested educational paper profile: {profile}")
+        c1, c2 = st.columns(2)
+        c1.metric("Risk willingness", f"{result['willingness']} / 8")
+        c2.metric("Risk capacity", f"{result['capacity']} / 8")
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "Setting": ["Risk per trade", "Maximum position", "Daily loss cutoff", "Maximum trades/day", "Reward/risk"],
+                    "Suggested value": [
+                        f"{proposed['risk_per_trade_pct']:.2f}%",
+                        f"{proposed['max_position_pct']:.0f}%",
+                        f"{proposed['max_daily_loss_pct']:.2f}%",
+                        proposed["max_trades_per_day"],
+                        f"{proposed['reward_to_risk']:.2f}",
+                    ],
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(
+            "Risk capacity limits the result when it is lower than risk willingness. "
+            "This output is educational, is not investment advice, and applies only to paper trading."
+        )
+        if st.button("Apply this paper profile"):
+            cfg.update(proposed)
+            cfg["allow_shorts"] = False
+            cfg["paper_only"] = True
+            CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+            st.session_state.clear()
+            st.rerun()
 
 with tab_chart:
     selected = st.selectbox("Symbol", cfg["symbols"] or ["SPY"])
@@ -131,4 +269,3 @@ with tab_log:
     with sqlite3.connect(DB_PATH) as db:
         events = pd.read_sql_query("SELECT * FROM events ORDER BY timestamp DESC LIMIT 500", db)
     st.dataframe(events, use_container_width=True, hide_index=True)
-
