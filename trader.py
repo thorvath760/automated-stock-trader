@@ -80,6 +80,7 @@ def fetch_bars(data_client: StockHistoricalDataClient, symbol: str, cfg: dict) -
         bars = bars.xs(symbol, level="symbol")
     return bars.sort_index()
 
+
 def _daily_state(equity: float) -> dict:
     today = datetime.now(timezone.utc).date().isoformat()
     state = {}
@@ -124,8 +125,8 @@ def scan_once(cfg: dict, api: Clients) -> list[str]:
         row = signals.iloc[-1]
         side = "buy" if bool(row["long_signal"]) else "sell" if bool(row["short_signal"]) else ""
         if not side or (side == "sell" and not bool(cfg.get("allow_shorts", False))):
-   messages.append(f"{symbol}: no eligible signal.")
-    continue
+            messages.append(f"{symbol}: no eligible signal.")
+            continue
 
         entry, stop, target = order_levels(row, side, cfg)
         qty = position_quantity(equity, entry, stop, cfg)
@@ -146,7 +147,7 @@ def scan_once(cfg: dict, api: Clients) -> list[str]:
         state["orders"] = int(state["orders"]) + 1
         STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
         log_event(symbol, "paper_order_submitted", side, qty, entry, stop, target, str(result.id))
-        messages.append(f"{symbol}: {diagnose_signal(row, cfg)}.")
+        messages.append(f"{symbol}: {side} {qty} submitted (paper).")
         if int(state["orders"]) >= int(cfg["max_trades_per_day"]):
             break
     return messages
