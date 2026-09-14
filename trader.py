@@ -80,54 +80,6 @@ def fetch_bars(data_client: StockHistoricalDataClient, symbol: str, cfg: dict) -
         bars = bars.xs(symbol, level="symbol")
     return bars.sort_index()
 
-def diagnose_signal(row: pd.Series, cfg: dict) -> str:
-    """Explain why the newest bar did not qualify."""
-
-    required = ("prior_low", "prior_high", "avg_volume", "ema")
-    if any(pd.isna(row.get(name)) for name in required):
-        return "not enough bars to calculate indicators"
-
-    swept_low = float(row["low"]) < float(row["prior_low"])
-    swept_high = float(row["high"]) > float(row["prior_high"])
-
-    volume_ratio = float(row["volume"]) / float(row["avg_volume"])
-    volume_ok = volume_ratio >= float(cfg["volume_multiplier"])
-
-    if swept_low:
-        if float(row["close"]) <= float(row["prior_low"]):
-            return "bullish sweep occurred, but price did not reclaim the prior low"
-        if float(row["close"]) <= float(row["open"]):
-            return "bullish sweep occurred, but the candle did not close bullish"
-        if not volume_ok:
-            return f"bullish sweep passed, but volume was only {volume_ratio:.2f}x average"
-        if (
-            bool(cfg.get("require_trend", True))
-            and float(row["close"]) <= float(row["ema"])
-        ):
-            return "bullish sweep and volume passed, but price was below the EMA"
-
-    if swept_high:
-        if float(row["close"]) >= float(row["prior_high"]):
-            return "bearish sweep occurred, but price did not reclaim the prior high"
-        if float(row["close"]) >= float(row["open"]):
-            return "bearish sweep occurred, but the candle did not close bearish"
-        if not volume_ok:
-            return f"bearish sweep passed, but volume was only {volume_ratio:.2f}x average"
-        if (
-            bool(cfg.get("require_trend", True))
-            and float(row["close"]) >= float(row["ema"])
-        ):
-            return "bearish sweep and volume passed, but price was above the EMA"
-        if not bool(cfg.get("allow_shorts", False)):
-            return "eligible bearish signal detected, but short selling is disabled"
-
-    if not swept_low and not swept_high:
-        return "no liquidity sweep on the newest bar"
-
-    return "signal conditions passed"
-    if not side or (side == "sell" and not bool(cfg.get("allow_shorts", False))):
-    messages.append(f"{symbol}: {diagnose_signal(row, cfg)}.")
-    continue
 def _daily_state(equity: float) -> dict:
     today = datetime.now(timezone.utc).date().isoformat()
     state = {}
@@ -172,7 +124,7 @@ def scan_once(cfg: dict, api: Clients) -> list[str]:
         row = signals.iloc[-1]
         side = "buy" if bool(row["long_signal"]) else "sell" if bool(row["short_signal"]) else ""
         if not side or (side == "sell" and not bool(cfg.get("allow_shorts", False))):
-    messages.append(f"{symbol}: {diagnose_signal(row, cfg)}.")
+   messages.append(f"{symbol}: no eligible signal.")
     continue
 
         entry, stop, target = order_levels(row, side, cfg)
