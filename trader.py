@@ -125,6 +125,9 @@ def diagnose_signal(row: pd.Series, cfg: dict) -> str:
         return "no liquidity sweep on the newest bar"
 
     return "signal conditions passed"
+    if not side or (side == "sell" and not bool(cfg.get("allow_shorts", False))):
+    messages.append(f"{symbol}: {diagnose_signal(row, cfg)}.")
+    continue
 def _daily_state(equity: float) -> dict:
     today = datetime.now(timezone.utc).date().isoformat()
     state = {}
@@ -169,8 +172,8 @@ def scan_once(cfg: dict, api: Clients) -> list[str]:
         row = signals.iloc[-1]
         side = "buy" if bool(row["long_signal"]) else "sell" if bool(row["short_signal"]) else ""
         if not side or (side == "sell" and not bool(cfg.get("allow_shorts", False))):
-            messages.append(f"{symbol}: no eligible signal.")
-            continue
+    messages.append(f"{symbol}: {diagnose_signal(row, cfg)}.")
+    continue
 
         entry, stop, target = order_levels(row, side, cfg)
         qty = position_quantity(equity, entry, stop, cfg)
