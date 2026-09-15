@@ -1,5 +1,5 @@
 {
-  "symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
+  "symbols": ["SPY", "QQQ", "IWM", "DIA", "AAPL", "MSFT", "NVDA", "AMZN"],
   "timeframe_minutes": 15,
   "lookback_days": 20,
   "sweep_lookback": 10,
